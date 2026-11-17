@@ -24,6 +24,7 @@ import (
 type entry struct {
 	title    string
 	toggle   bool // shows a checkmark when on
+	pill     bool // shows an on/off switch where the platform can, else a checkmark
 	on       bool
 	disabled bool
 	dot      dot
@@ -51,7 +52,7 @@ const expiryWarn = 7 * 24 * time.Hour
 // does not rebuild a menu that may be open.
 func same(a, b []entry) bool {
 	return slices.EqualFunc(a, b, func(x, y entry) bool {
-		return x.title == y.title && x.toggle == y.toggle && x.on == y.on &&
+		return x.title == y.title && x.toggle == y.toggle && x.pill == y.pill && x.on == y.on &&
 			x.disabled == y.disabled && x.dot == y.dot && x.sep == y.sep &&
 			(x.do == nil) == (y.do == nil) && same(x.sub, y.sub)
 	})
@@ -98,14 +99,13 @@ func (a *app) entries(s state) []entry {
 			entry{title: "Copy the Fix: " + fix, do: a.copy(fix)},
 			separator)
 	}
-	quit := entry{title: "Quit Tailtray", do: a.quit}
 	if s.status == nil {
-		return append(es, entry{title: "Tailscale Isn't Running", disabled: true}, separator, quit)
+		return append(es, entry{title: "Tailscale Isn't Running", disabled: true})
 	}
 
 	switch s.status.BackendState {
 	case ipn.Running.String():
-		es = append(es, entry{title: "Connected", toggle: true, on: true, disabled: s.readonly, do: a.edit(&ipn.MaskedPrefs{Prefs: ipn.Prefs{WantRunning: false}, WantRunningSet: true})})
+		es = append(es, entry{title: "Connected", toggle: true, pill: true, on: true, disabled: s.readonly, do: a.edit(&ipn.MaskedPrefs{Prefs: ipn.Prefs{WantRunning: false}, WantRunningSet: true})})
 	case ipn.Starting.String():
 		es = append(es, entry{title: "Connecting…", disabled: true})
 	case ipn.NeedsLogin.String():
@@ -113,22 +113,19 @@ func (a *app) entries(s state) []entry {
 	case ipn.NeedsMachineAuth.String():
 		es = append(es, entry{title: "Waiting for an Admin to Approve This Device", disabled: true})
 	default:
-		es = append(es, entry{title: "Connected", toggle: true, disabled: s.readonly, do: a.edit(&ipn.MaskedPrefs{Prefs: ipn.Prefs{WantRunning: true}, WantRunningSet: true})})
+		es = append(es, entry{title: "Connected", toggle: true, pill: true, disabled: s.readonly, do: a.edit(&ipn.MaskedPrefs{Prefs: ipn.Prefs{WantRunning: true}, WantRunningSet: true})})
 	}
 	if !s.running() {
-		return append(es, separator, a.settings(s), a.account(s), separator, quit)
+		return append(es, separator, a.settings(s), a.account(s))
 	}
 
 	self := s.status.Self
 	es = append(es, entry{title: fmt.Sprintf("This Device: %s (%s)", name(self), firstIP(self)), do: a.copy(firstIP(self))}, separator)
-	if t, ok := a.exitToggle(s); ok {
-		es = append(es, t)
-	}
 	es = append(es, a.exitNodes(s), a.devices(s), a.serving(s))
 	if len(s.targets) > 0 {
 		es = append(es, a.sendFile(s))
 	}
-	return append(es, separator, a.settings(s), a.account(s), separator, quit)
+	return append(es, separator, a.settings(s), a.account(s))
 }
 
 // expiry returns a warning when self's key expires within expiryWarn of now.
@@ -149,24 +146,6 @@ func expiry(self *ipnstate.PeerStatus, now time.Time) string {
 	return "Key Expires in " + plural(int(left/(24*time.Hour)), "Day")
 }
 
-// exitToggle returns an entry that turns the exit node in use, or the last
-// one used, on and off in one click.
-func (a *app) exitToggle(s state) (entry, bool) {
-	var id tailcfg.StableNodeID
-	on := false
-	switch {
-	case s.status.ExitNodeStatus != nil && s.status.ExitNodeStatus.ID != "":
-		id, on = s.status.ExitNodeStatus.ID, true
-	case s.prefs != nil:
-		id = s.prefs.InternalExitNodePrior
-	}
-	p := peer(s.status, id)
-	if p == nil {
-		return entry{}, false
-	}
-	return entry{title: "Exit Node: " + name(p), toggle: true, on: on, disabled: s.readonly || (!on && !p.Online), do: a.useExitNode(!on)}, true
-}
-
 func (a *app) exitNodes(s state) entry {
 	var cur tailcfg.StableNodeID
 	if ens := s.status.ExitNodeStatus; ens != nil {
@@ -174,13 +153,15 @@ func (a *app) exitNodes(s state) entry {
 	}
 	var nodes []*ipnstate.PeerStatus
 	for _, p := range s.status.Peer {
-		if p.ExitNodeOption && p.Location == nil {
+		// Location nodes (Mullvad) are left out, but a peer in use as the exit
+		// node is listed, even a location node or one no longer offered.
+		if (cur != "" && p.ID == cur) || (p.ExitNodeOption && p.Location == nil) {
 			nodes = append(nodes, p)
 		}
 	}
 	slices.SortFunc(nodes, byName)
 
-	sub := []entry{{title: "None", toggle: true, on: cur == "", disabled: s.readonly || cur == "", do: a.useExitNode(false)}}
+	sub := []entry{{title: "None", toggle: true, on: cur == "", disabled: s.readonly || cur == "", do: a.clearExitNode}}
 	if len(nodes) > 0 {
 		sub = append(sub, separator)
 	}

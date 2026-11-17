@@ -68,6 +68,9 @@ func (m *menuBar) add(ctx context.Context, parent *systray.MenuItem, e entry) {
 	if e.disabled {
 		it.Disable()
 	}
+	if e.pill {
+		pill(e.title, e.on)
+	}
 	if len(e.sub) > 0 {
 		time.Sleep(subMenuDelay)
 		for _, c := range e.sub {

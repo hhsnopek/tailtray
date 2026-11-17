@@ -4,7 +4,7 @@ A menu bar app for Tailscale that looks and works the same on macOS and Linux. I
 
 The icon shows whether Tailscale is connected, connecting, or using an exit node, and marks an exit node that has gone offline. The menu covers:
 
-- Connecting, disconnecting and logging in, with health warnings and key expiry
+- Connecting and disconnecting (a switch on macOS, a checkmark on Linux), logging in, health warnings and key expiry
 - Exit nodes, with the one Tailscale suggests marked, and local network access
 - Devices grouped into yours, tagged and shared, each with Ping, SSH, its connection path and copyable addresses
 - Serve and Funnel: what this device serves, local ports it could serve, and Funnel on or off

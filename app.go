@@ -15,7 +15,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"fyne.io/systray"
 	"tailscale.com/client/local"
 	"tailscale.com/ipn"
 	"tailscale.com/tailcfg"
@@ -384,11 +383,6 @@ func createUnique(dir, name string) (*os.File, error) {
 	}
 }
 
-func (a *app) quit(context.Context) error {
-	systray.Quit()
-	return nil
-}
-
 func (a *app) copy(text string) func(context.Context) error {
 	return func(context.Context) error {
 		if err := copyText(text); err != nil {
@@ -419,14 +413,11 @@ func (a *app) login(ctx context.Context) error {
 	return nil
 }
 
-// useExitNode turns the exit node off, remembering it, or back on.
-func (a *app) useExitNode(on bool) func(context.Context) error {
-	return func(ctx context.Context) error {
-		if err := a.lc.SetUseExitNode(ctx, on); err != nil {
-			return fmt.Errorf("switching the exit node: %w", err)
-		}
-		return nil
+func (a *app) clearExitNode(ctx context.Context) error {
+	if err := a.lc.SetUseExitNode(ctx, false); err != nil {
+		return fmt.Errorf("turning the exit node off: %w", err)
 	}
+	return nil
 }
 
 func (a *app) setExitNode(id tailcfg.StableNodeID) func(context.Context) error {

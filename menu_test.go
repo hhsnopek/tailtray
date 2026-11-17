@@ -177,27 +177,27 @@ func TestEntriesTopLevel(t *testing.T) {
 		want []string
 	}{
 		"daemon unreachable": {
-			want: []string{"Tailscale Isn't Running", "", "Quit Tailtray"},
+			want: []string{"Tailscale Isn't Running"},
 		},
 		"stopped": {
 			s:    state{status: &ipnstate.Status{BackendState: ipn.Stopped.String()}},
-			want: []string{"Connected", "", "Settings", "Account: None", "", "Quit Tailtray"},
+			want: []string{"Connected", "", "Settings", "Account: None"},
 		},
 		"needs login": {
 			s:    state{status: &ipnstate.Status{BackendState: ipn.NeedsLogin.String()}},
-			want: []string{"Log In…", "", "Settings", "Account: None", "", "Quit Tailtray"},
+			want: []string{"Log In…", "", "Settings", "Account: None"},
 		},
 		"running, no exit node used yet": {
 			s:    state{status: running(nil), prefs: &ipn.Prefs{}},
-			want: []string{"Connected", "This Device: mac (100.64.0.2)", "", "Exit Nodes", "Devices", "Serve", "", "Settings", "Account: None", "", "Quit Tailtray"},
+			want: []string{"Connected", "This Device: mac (100.64.0.2)", "", "Exit Nodes", "Devices", "Serve", "", "Settings", "Account: None"},
 		},
 		"running through an exit node": {
 			s:    state{status: running(&ipnstate.ExitNodeStatus{ID: "n1", Online: true}), prefs: &ipn.Prefs{}},
-			want: []string{"Connected", "This Device: mac (100.64.0.2)", "", "Exit Node: router", "Exit Nodes", "Devices", "Serve", "", "Settings", "Account: None", "", "Quit Tailtray"},
+			want: []string{"Connected", "This Device: mac (100.64.0.2)", "", "Exit Nodes", "Devices", "Serve", "", "Settings", "Account: None"},
 		},
 		"exit node off, last one remembered": {
 			s:    state{status: running(nil), prefs: &ipn.Prefs{InternalExitNodePrior: "n1"}},
-			want: []string{"Connected", "This Device: mac (100.64.0.2)", "", "Exit Node: router", "Exit Nodes", "Devices", "Serve", "", "Settings", "Account: None", "", "Quit Tailtray"},
+			want: []string{"Connected", "This Device: mac (100.64.0.2)", "", "Exit Nodes", "Devices", "Serve", "", "Settings", "Account: None"},
 		},
 	}
 	for name, tc := range tests {
@@ -209,6 +209,62 @@ func TestEntriesTopLevel(t *testing.T) {
 			}
 			if !slices.Equal(got, tc.want) {
 				t.Errorf("titles:\n got  %q\n want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestExitNodes(t *testing.T) {
+	a, err := newApp(&local.Client{}, dark)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := &ipnstate.PeerStatus{ID: "n1", DNSName: "router.example.ts.net.", Online: true, ExitNodeOption: true}
+	mullvad := &ipnstate.PeerStatus{ID: "n2", DNSName: "mullvad.example.ts.net.", Online: true, ExitNodeOption: true, Location: &tailcfg.Location{Country: "Sweden"}}
+	revoked := &ipnstate.PeerStatus{ID: "n3", DNSName: "nas.example.ts.net.", Online: true}
+	peers := map[key.NodePublic]*ipnstate.PeerStatus{key.NewNode().Public(): router, key.NewNode().Public(): mullvad, key.NewNode().Public(): revoked}
+	lan := "Allow Local Network Access"
+	tests := map[string]struct {
+		exit   *ipnstate.ExitNodeStatus
+		want   []string
+		wantOn []string
+	}{
+		"no exit node": {
+			want:   []string{"None", "", "router", "", lan},
+			wantOn: []string{"None"},
+		},
+		"tailnet exit node in use": {
+			exit:   &ipnstate.ExitNodeStatus{ID: "n1", Online: true},
+			want:   []string{"None", "", "router", "", lan},
+			wantOn: []string{"router"},
+		},
+		"location exit node in use is listed": {
+			exit:   &ipnstate.ExitNodeStatus{ID: "n2", Online: true},
+			want:   []string{"None", "", "mullvad", "router", "", lan},
+			wantOn: []string{"mullvad"},
+		},
+		"exit node in use no longer offered is listed": {
+			exit:   &ipnstate.ExitNodeStatus{ID: "n3", Online: true},
+			want:   []string{"None", "", "nas", "router", "", lan},
+			wantOn: []string{"nas"},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s := state{status: &ipnstate.Status{Peer: peers, ExitNodeStatus: tc.exit}, prefs: &ipn.Prefs{}}
+			var got, gotOn []string
+			for _, e := range a.exitNodes(s).sub {
+				got = append(got, e.title)
+				if e.on {
+					gotOn = append(gotOn, e.title)
+				}
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("titles:\n got  %q\n want %q", got, tc.want)
+			}
+			if !slices.Equal(gotOn, tc.wantOn) {
+				t.Errorf("checked: got %q; want %q", gotOn, tc.wantOn)
 			}
 		})
 	}
